@@ -1,0 +1,8 @@
+# A Corefile whose plugins are somewhere else. Reading it honestly means saying
+# so, which is what this fixture is for.
+import /etc/coredns/conf.d/*.conf
+
+example.test:53 {
+    import nowhere
+    file db.example.test
+}

@@ -1,0 +1,33 @@
+# The zones this machine is authoritative for, and what it does with the rest.
+#
+# Nothing here is anybody's real configuration: it is the fixture the provider's
+# tests read, and it is written to be valid CoreDNS so that `make validate` can
+# prove that with CoreDNS itself.
+
+(logging) {
+    log
+    errors
+}
+
+example.com example.org:53 {
+    import logging
+    file db.example.com example.com.
+    file db.example.org example.org.
+    prometheus :9153
+}
+
+internal.test:5353 {
+    root /etc/coredns/zones
+    file db.internal.test
+    cache 30
+}
+
+.:53 {
+    import logging
+    forward . 1.1.1.1 9.9.9.9 {
+        max_concurrent 1000
+    }
+    cache 30
+    health
+    ready
+}

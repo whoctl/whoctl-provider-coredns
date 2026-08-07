@@ -1,0 +1,12 @@
+; No $ORIGIN: the origin is the one the Corefile's server block names.
+$TTL 1h
+@       IN  SOA ns.internal.test. admin.internal.test. (
+            2026080503
+            1h
+            15m
+            2w
+            1h )
+@       IN  NS  ns.internal.test.
+ns      IN  A   10.0.0.53
+db01    IN  A   10.0.0.11
+db02    IN  A   10.0.0.12
