@@ -38,6 +38,34 @@ The environment variable is how a whoctl server points a context at one CoreDNS
 among several. The provider cannot tell whether a person or a server started
 it, which is deliberate — it behaves as whoever did.
 
+## Serving it
+
+A context is one CoreDNS. Both variables matter and the second is the one that
+is easy to miss:
+
+```yaml
+- name: edge-01
+  provider: coredns
+  env:
+    # The tree every path inside the Corefile resolves under. whoctl's own
+    # --root is one value for the whole session, and a server with three of
+    # these needs three — without it, `root /etc/coredns/zones` inside the
+    # Corefile resolves against the *server's* filesystem, and the listing is
+    # of files belonging to somebody else.
+    WHOCTL_COREDNS_ROOT: /srv/images/edge-01
+    # Only when the Corefile is not at etc/coredns/Corefile under that root.
+    WHOCTL_COREDNS_COREFILE: /srv/images/edge-01/opt/coredns/Corefile
+```
+
+Nothing here is namespaced, so a context declares no `namespaces` — there is one
+CoreDNS behind it and no second axis to divide it along. Nothing here answers a
+pod view either: a server block is configuration, not something running, and
+nominating one would be the shim telling a client a lie it cannot check.
+
+The provider reads files, so a context describes a tree the server can open —
+a mounted image, an rsync'd copy, a local install. There is no remote mode: to
+serve a CoreDNS on another machine, run a whoctl server on that machine.
+
 ## It reads and does not write
 
 Both kinds publish `get` and `list` and nothing else, so a Kubernetes client
