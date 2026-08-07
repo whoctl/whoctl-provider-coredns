@@ -88,12 +88,39 @@ in seconds and in BIND's `1h`/`15m`/`2w` spelling.
 Neither validates rdata against its type. Neither ever will: that is a resolver's
 job, and being wrong about it would be worse than not answering.
 
-## `make validate` is the only check from outside
+## `make sandbox` and `make validate` are the checks from outside
 
-Every test here reads `testdata/`, and every one of them would keep passing if
-the fixture drifted into something CoreDNS refuses to load — the parser would be
-exercised against a file no CoreDNS has ever accepted, and the tests would agree
-with it.
+Every test here reads `testdata/` and agrees with itself. A parser that is wrong
+about a Corefile goes on agreeing with itself indefinitely, so both of these
+exist to ask something that is not this repository.
+
+`make sandbox` opens a shell on a throwaway machine with two things prepared:
+the fixture mounted at **`/etc/coredns`**, and a real CoreDNS answering from the
+same files at `dns`. Both matter.
+
+The mount point is the one the provider looks at when nothing tells it
+otherwise, and on a workstation every command needs `--root` or an environment
+variable — so the default path is the single line of this provider that nothing
+ever exercises. In the sandbox it is the only one that runs.
+
+The CoreDNS beside it is what the readings are compared against:
+
+    whoctl get coredns/zones     # example.com  serial 2026080501
+    dig @dns example.com SOA     # ... 2026080501 7200 3600 1209600 3600
+
+They read the same files, so they have to agree. `make coredns` starts the same
+CoreDNS without the container, for digging at from the workstation.
+
+The harness itself is whoctl's, reached at `../whoctl/scripts/sandbox.sh` or
+wherever `WHOCTL_SANDBOX` points. Copying it here would be a second copy to
+drift, and what belongs here is only what is this provider's: the tree, the
+mount point, and dig.
+
+**Still missing:** none of that comparison is automated. Running it is a person
+typing two commands and looking, which is exactly the kind of check that stops
+being run. `make e2e` doing it is the next thing.
+
+## `make validate` on its own
 
 `scripts/validate.sh` runs the real CoreDNS in a container against the fixture
 and checks it comes up. It has no `--validate` flag, so the check is that it

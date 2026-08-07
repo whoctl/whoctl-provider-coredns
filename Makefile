@@ -31,6 +31,25 @@ test:
 unit:
 	@go test ./...
 
+## sandbox: a shell on a throwaway machine, with the fixture at /etc/coredns
+#
+# The harness is whoctl's — see scripts/sandbox.sh on what is prepared here and
+# why. It needs github.com/whoctl/whoctl checked out beside this repository, or
+# WHOCTL_SANDBOX pointing at its scripts/sandbox.sh.
+.PHONY: sandbox
+sandbox:
+	@scripts/sandbox.sh $(ARGS)
+
+## coredns: start a CoreDNS on the fixture and leave it up to dig at by hand
+.PHONY: coredns
+coredns:
+	@scripts/coredns.sh
+
+## coredns-stop: take that CoreDNS down
+.PHONY: coredns-stop
+coredns-stop:
+	@scripts/coredns.sh stop
+
 ## validate: have CoreDNS itself confirm the fixture Corefile is one
 .PHONY: validate
 validate:
