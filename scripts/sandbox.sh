@@ -19,18 +19,24 @@
 # and a parser that is wrong about a Corefile agrees with itself right up until
 # something outside it is asked.
 #
+# The whole of testdata/ is mounted a second time at /testdata, because the
+# suite needs the fixtures that are deliberately *not* the default one — the
+# Corefile whose imports go nowhere, and the zone file that is not there.
+#
 # Usage:
 #   scripts/sandbox.sh                              # a shell
 #   scripts/sandbox.sh whoctl get coredns/servers   # one command
-#   DISTRO=fedora scripts/sandbox.sh
+#
+# Alpine, and only Alpine. The distro matters to the linux provider, which
+# drives four package managers and two sets of account tools; nothing here
+# touches a system at all — it reads files — so a second distro would cost
+# minutes per run and answer no question.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 sandbox="${WHOCTL_SANDBOX:-$root/../whoctl/scripts/sandbox.sh}"
 engine="${CONTAINER_ENGINE:-podman}"
 image="${COREDNS_IMAGE:-docker.io/coredns/coredns:1.12.0}"
-distro="${DISTRO:-alpine}"
-
 network=whoctl-coredns-sandbox
 dns=whoctl-coredns-sandbox-dns
 
@@ -39,16 +45,6 @@ if [ ! -x "$sandbox" ]; then
 	echo "repository, or set WHOCTL_SANDBOX to its scripts/sandbox.sh." >&2
 	exit 1
 fi
-
-# dig is what the comparison is made with, and every distro calls its package
-# something else.
-case "$distro" in
-alpine) tools=bind-tools ;;
-debian) tools=dnsutils ;;
-fedora) tools=bind-utils ;;
-arch) tools=bind ;;
-*) tools="" ;;
-esac
 
 cleanup() {
 	"$engine" rm -f "$dns" >/dev/null 2>&1 || true
@@ -81,9 +77,10 @@ from the same files at "dns". Inside:
 EOF
 
 PROVIDERS=coredns \
-EXTRA_PACKAGES="$tools" \
-MOUNTS="-v $root/testdata/etc/coredns:/etc/coredns:ro,z" \
+EXTRA_PACKAGES="bind-tools" \
+MOUNTS="-v $root/testdata/etc/coredns:/etc/coredns:ro,z \
+	-v $root/testdata:/testdata:ro,z \
+	-v $root/scripts:/scripts:ro,z" \
 NETWORK="--network $network" \
 ENV="-e COREDNS_HOST=$dns" \
-DISTRO="$distro" \
 	"$sandbox" "$@"

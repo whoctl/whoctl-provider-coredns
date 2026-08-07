@@ -116,11 +116,26 @@ wherever `WHOCTL_SANDBOX` points. Copying it here would be a second copy to
 drift, and what belongs here is only what is this provider's: the tree, the
 mount point, and dig.
 
-**Still missing:** none of that comparison is automated. Running it is a person
-typing two commands and looking, which is exactly the kind of check that stops
-being run. `make e2e` doing it is the next thing.
+`make e2e` is that comparison, automated: 44 assertions, and the ones that earn
+the suite are the pairs — every SOA field, the apex name servers, three records
+chosen because the parser reads each down a different branch, and the port
+`internal.test` is served on. `make test` runs it after the unit tests.
+
+**It was checked by breaking the parser.** A suite that compares two readings is
+worth nothing until it has been seen to fail, so `soaOf` was changed to read the
+serial out of the wrong field. Three assertions went red — both zones and the
+one on 5353 — and were green again on revert. Do that again after changing
+either parser; a green suite that cannot go red is the thing this was built to
+avoid.
+
+`make sandbox` is the same machine without the suite, for when the thing you
+want is to type at it.
 
 ## `make validate` on its own
+
+`make e2e` subsumes this — a CoreDNS that would not load the fixture never
+answers a query there. It is kept because it needs no whoctl at all, so it still
+says something when the provider and the fixture are being changed together.
 
 `scripts/validate.sh` runs the real CoreDNS in a container against the fixture
 and checks it comes up. It has no `--validate` flag, so the check is that it

@@ -18,13 +18,13 @@ build:
 		-o bin/whoctl-provider-coredns .
 	@echo "built bin/whoctl-provider-coredns ($(VERSION))"
 
-## test: unit tests, plus CoreDNS itself checking the fixtures are real
+## test: unit tests on the host, plus e2e against a real CoreDNS
 .PHONY: test
 test:
 	@echo "== unit tests (host, reads testdata/ only)"
 	@go test ./...
 	@echo
-	@scripts/validate.sh
+	@scripts/e2e-run.sh
 
 ## unit: unit tests only
 .PHONY: unit
@@ -40,6 +40,11 @@ unit:
 sandbox:
 	@scripts/sandbox.sh $(ARGS)
 
+## e2e: the suite, against a CoreDNS reading the same files whoctl does
+.PHONY: e2e
+e2e:
+	@scripts/e2e-run.sh
+
 ## coredns: start a CoreDNS on the fixture and leave it up to dig at by hand
 .PHONY: coredns
 coredns:
@@ -50,7 +55,11 @@ coredns:
 coredns-stop:
 	@scripts/coredns.sh stop
 
-## validate: have CoreDNS itself confirm the fixture Corefile is one
+## validate: have CoreDNS confirm the fixture Corefile is one, without whoctl
+#
+# `make e2e` subsumes this — a CoreDNS that would not load the fixture never
+# answers a single query there. It is kept because it needs no whoctl at all,
+# so it still says something when the two are being changed together.
 .PHONY: validate
 validate:
 	@scripts/validate.sh
