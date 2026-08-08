@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test ./...
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      # The sibling layout is load-bearing in exactly one place: the container
+      # harness lives in the CLI and this provider's runner reaches for
+      # ../whoctl/scripts/sandbox.sh. That is a script, not a module — nothing
+      # here needs a workspace.
+      - uses: actions/checkout@v4
+        with:
+          path: whoctl-provider-coredns
+      - uses: actions/checkout@v4
+        with:
+          repository: whoctl/whoctl
+          path: whoctl
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: whoctl-provider-coredns/go.mod
+      - name: e2e
+        working-directory: whoctl-provider-coredns
+        env:
+          CONTAINER_ENGINE: docker
+        run: scripts/e2e-run.sh

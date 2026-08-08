@@ -1,0 +1,70 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+# One job builds both platforms and uploads once. A matrix job per platform
+# raced: two jobs creating the same release at the same moment, and whoever
+# lost failed the upload — which with fail-fast cancelled the other and left a
+# release missing an architecture. Go cross-compiles for nothing.
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build, package and checksum
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -eu
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            GOOS=linux GOARCH=$arch make build
+
+            # The name carries no version: GitHub's releases/latest/download/
+            # URL only resolves a fixed asset name, and the tag already says
+            # which release this is.
+            name=whoctl-provider-coredns-linux_$arch
+            tar -C bin -czf "dist/$name.tar.gz" .
+            # The checksum is what the registry index publishes and what whoctl
+            # verifies before it executes anything it downloaded.
+            ( cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256" )
+            rm -rf bin
+          done
+          # Published once, not per platform: the pages and the schema are the
+          # same whatever the binary was built for.
+          make docs && mv bundle.json dist/docs-bundle.json
+          ls -l dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+  # The site is built centrally, so a release has to tell it there is something
+  # new. Without this the site only catches up on its nightly schedule.
+  #
+  # A cross-repository dispatch cannot use the default GITHUB_TOKEN, which is
+  # scoped to this repository alone. WHOCTL_DOCS_TOKEN is a token with `contents:
+  # write` on whoctl/whoctl-docs; the step is skipped when it is not set, so a
+  # fork releases without failing here.
+  notify-docs:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: ask whoctl-docs to rebuild
+        if: env.TOKEN != ''
+        env:
+          TOKEN: ${{ secrets.WHOCTL_DOCS_TOKEN }}
+        run: |
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/whoctl/whoctl-docs/dispatches \
+            -d '{"event_type":"provider-released"}'
