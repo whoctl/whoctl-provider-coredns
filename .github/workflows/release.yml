@@ -60,24 +60,42 @@ jobs:
   # The site is built centrally, so a release has to tell it there is something
   # new. Without this the site only catches up on its nightly schedule.
   #
-  # A cross-repository dispatch cannot use the default GITHUB_TOKEN, which is
-  # scoped to this repository alone. WHOCTL_DOCS_TOKEN is a token with `contents:
-  # write` on whoctl/whoctl-docs; the step is skipped when it is not set, so a
-  # fork releases without failing here.
+  # # Why an App and not a token
+  #
+  # GITHUB_TOKEN is scoped to the repository running the workflow, so it cannot
+  # write to a sibling even inside one organization. A personal access token
+  # can — and belongs to a person, who leaves, revokes it, or simply is not the
+  # one who should own the release path for a project several people work on.
+  #
+  # A GitHub App is owned by the organization. It mints a token that lives an
+  # hour and does not exist between runs, and nothing about it survives anyone
+  # leaving. The App id is not a secret and is an organization *variable*; only
+  # the private key is a secret.
+  #
+  # With neither set, this says so and the site catches up overnight, which is
+  # what the schedule is for.
   notify-docs:
     needs: release
     runs-on: ubuntu-latest
     steps:
+      - name: mint a token from the organization's app
+        id: app
+        if: vars.WHOCTL_DOCS_APP_ID != ''
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.WHOCTL_DOCS_APP_ID }}
+          private-key: ${{ secrets.WHOCTL_DOCS_APP_KEY }}
+          owner: whoctl
+          repositories: whoctl-docs
+
       - name: ask whoctl-docs to rebuild
         env:
-          TOKEN: ${{ secrets.WHOCTL_DOCS_TOKEN }}
-        # Skipping silently is how a release comes to take a day to reach
-        # anybody: the site rebuilds nightly whatever happens, so a missing
-        # token looks exactly like a working one until somebody notices a
-        # version that will not install.
+          TOKEN: ${{ steps.app.outputs.token }}
         run: |
           if [ -z "${TOKEN:-}" ]; then
-            echo "::warning::WHOCTL_DOCS_TOKEN is not set, so whoctl-docs was not told."
+            echo "::warning::No app token, so whoctl-docs was not told."
+            echo "Set WHOCTL_DOCS_APP_ID (an organization variable) and"
+            echo "WHOCTL_DOCS_APP_KEY (an organization secret) to change that."
             echo "This release becomes installable on the site's next nightly build."
             exit 0
           fi
@@ -87,4 +105,3 @@ jobs:
             https://api.github.com/repos/whoctl/whoctl-docs/dispatches \
             -d '{"event_type":"provider-released"}'
           echo "whoctl-docs asked to rebuild."
-
