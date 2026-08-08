@@ -62,12 +62,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: ask whoctl-docs to rebuild
-        if: env.TOKEN != ''
         env:
           TOKEN: ${{ secrets.WHOCTL_DOCS_TOKEN }}
+        # Skipping silently is how a release comes to take a day to reach
+        # anybody: the site rebuilds nightly whatever happens, so a missing
+        # token looks exactly like a working one until somebody notices a
+        # version that will not install.
         run: |
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::warning::WHOCTL_DOCS_TOKEN is not set, so whoctl-docs was not told."
+            echo "This release becomes installable on the site's next nightly build."
+            exit 0
+          fi
           curl -fsSL -X POST \
             -H "Authorization: Bearer $TOKEN" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/whoctl/whoctl-docs/dispatches \
             -d '{"event_type":"provider-released"}'
+          echo "whoctl-docs asked to rebuild."
+
