@@ -33,7 +33,10 @@ jobs:
             # URL only resolves a fixed asset name, and the tag already says
             # which release this is.
             name=whoctl-provider-coredns-linux_$arch
-            tar -C bin -czf "dist/$name.tar.gz" .
+            # The binary by name, not the whole of bin/. Naming the
+            # directory is how nine example manifests ended up in every
+            # install: whatever a build leaves behind rides along.
+            tar -C bin -czf "dist/$name.tar.gz" whoctl-provider-coredns
             # The checksum is what the registry index publishes and what whoctl
             # verifies before it executes anything it downloaded.
             ( cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256" )
