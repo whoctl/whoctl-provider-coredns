@@ -22,9 +22,16 @@ jobs:
       - name: build, package and checksum
         env:
           CGO_ENABLED: "0"
-          VERSION: ${{ github.ref_name }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -eu
+          # The tag is v0.2.1 and the version is 0.2.1. The `v` is git's
+          # convention for naming a tag, and it is not part of a semantic
+          # version — the registry index, the lockfile and the install path all
+          # spell it without one. Stamping the tag verbatim made `whoctl
+          # providers` report v0.2.1 on the same line as a path saying 0.2.1.
+          VERSION=${TAG#v}
+          export VERSION
           mkdir -p dist
           for arch in amd64 arm64; do
             GOOS=linux GOARCH=$arch make build
