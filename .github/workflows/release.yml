@@ -72,6 +72,17 @@ jobs:
   # leaving. The App id is not a secret and is an organization *variable*; only
   # the private key is a secret.
   #
+  # # Why it asks for Actions and not Contents
+  #
+  # Triggering a build is all this needs, and `workflow_dispatch` needs
+  # `actions: write`. The other way in — `repository_dispatch` — needs
+  # `contents: write`, which is the right to edit whoctl-docs: change
+  # providers.yaml to name somebody else's repository and the next build signs
+  # and publishes that index. The signing key never leaves whoctl-docs, so
+  # nobody forges a signature — they get the real one applied to their content.
+  # A key that can start a build and change nothing is the smaller thing to
+  # lose.
+  #
   # With neither set, this says so and the site catches up overnight, which is
   # what the schedule is for.
   notify-docs:
@@ -87,6 +98,7 @@ jobs:
           private-key: ${{ secrets.WHOCTL_DOCS_APP_KEY }}
           owner: whoctl
           repositories: whoctl-docs
+          permission-actions: write
 
       - name: ask whoctl-docs to rebuild
         env:
@@ -102,6 +114,6 @@ jobs:
           curl -fsSL -X POST \
             -H "Authorization: Bearer $TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/whoctl/whoctl-docs/dispatches \
-            -d '{"event_type":"provider-released"}'
+            https://api.github.com/repos/whoctl/whoctl-docs/actions/workflows/pages.yml/dispatches \
+            -d '{"ref":"main"}'
           echo "whoctl-docs asked to rebuild."
