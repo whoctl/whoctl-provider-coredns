@@ -21,9 +21,9 @@ import (
 
 	"github.com/whoctl/whoctl-sdk-go/core"
 
-	"github.com/whoctl/whoctl-provider-coredns/internal/corefile"
 	"github.com/whoctl/whoctl-provider-coredns/internal/provider"
 	"github.com/whoctl/whoctl-provider-coredns/internal/zonefile"
+	"github.com/whoctl/whoctl-provider-coredns/internal/zones"
 )
 
 // Spec is the zone as the Corefile asks for it.
@@ -94,28 +94,15 @@ func (h *Handler) NewSpec() any { return &Spec{} }
 
 func (h *Handler) NewStatus() any { return &Status{} }
 
-// loaded is one origin, and everything the Corefile says about it.
-//
-// The Corefile is what says which files exist, so it is read first and the
-// files second. Both keys matter: an origin served from two different files is
-// two things and has to stay visible as two, which is what the file in the key
-// is for.
-type loaded struct {
-	origin  string
-	file    string // as the Corefile writes it
-	path    string // resolved
-	servers []string
-}
-
 // List reads every zone the Corefile loads.
 func (h *Handler) List(_ context.Context) ([]core.Object, error) {
 	f, err := h.p.LoadCorefile()
 	if err != nil {
 		return nil, err
 	}
-	zones := h.discover(f)
-	out := make([]core.Object, 0, len(zones))
-	for _, z := range zones {
+	discovered := zones.Discover(h.p, f)
+	out := make([]core.Object, 0, len(discovered))
+	for _, z := range discovered {
 		out = append(out, h.object(z))
 	}
 	return out, nil
@@ -128,49 +115,12 @@ func (h *Handler) Get(_ context.Context, name string) (core.Object, error) {
 		return core.Object{}, err
 	}
 	want := strings.ToLower(strings.TrimSuffix(name, "."))
-	for _, z := range h.discover(f) {
-		if zoneName(z.origin) == want || strings.TrimSuffix(z.origin, ".") == want {
+	for _, z := range zones.Discover(h.p, f) {
+		if zones.Name(z.Origin) == want || strings.TrimSuffix(z.Origin, ".") == want {
 			return h.object(z), nil
 		}
 	}
 	return core.Object{}, core.NotFound("zone", name)
-}
-
-// discover walks the server blocks and collects the zone files they load.
-//
-// The same file loaded by two blocks is one zone with two servers, which is the
-// ordinary case — a Corefile listening on 53 and on 5353 writes the `file`
-// directive twice. Two *different* files for one origin is not ordinary, and
-// stays two objects rather than being merged into one that is neither.
-func (h *Handler) discover(f *corefile.File) []loaded {
-	index := map[string]*loaded{}
-	var order []string
-
-	for _, srv := range f.Servers {
-		name := corefile.ServerName(srv)
-		root := srv.Root()
-		for _, d := range srv.DirectivesNamed("file") {
-			if len(d.Args) == 0 {
-				continue
-			}
-			for _, origin := range srv.FileZones(d) {
-				key := origin + "\x00" + d.Args[0]
-				z, seen := index[key]
-				if !seen {
-					z = &loaded{origin: origin, file: d.Args[0], path: h.p.Resolve(d.Args[0], root)}
-					index[key] = z
-					order = append(order, key)
-				}
-				z.servers = append(z.servers, name)
-			}
-		}
-	}
-
-	out := make([]loaded, 0, len(order))
-	for _, key := range order {
-		out = append(out, *index[key])
-	}
-	return out
 }
 
 // object reads the zone file and builds the object.
@@ -179,11 +129,11 @@ func (h *Handler) discover(f *corefile.File) []loaded {
 // loads it, and a zone missing from the listing would read as "not configured"
 // when what is true is "configured and broken" — which is the more urgent of
 // the two and the one worth being able to see.
-func (h *Handler) object(z loaded) core.Object {
-	spec := &Spec{Origin: z.origin, File: z.file}
-	status := &Status{Path: z.path, Servers: z.servers}
+func (h *Handler) object(z zones.Loaded) core.Object {
+	spec := &Spec{Origin: z.Origin, File: z.File}
+	status := &Status{Path: z.Path, Servers: z.Servers}
 
-	parsed, err := zonefile.ParseFile(z.path, z.origin)
+	parsed, err := zonefile.ParseFile(z.Path, z.Origin)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		status.Message = "the Corefile loads this file and it is not there: CoreDNS will not serve the zone"
@@ -208,7 +158,7 @@ func (h *Handler) object(z loaded) core.Object {
 	}
 	sort.Strings(status.Servers)
 
-	name := zoneName(spec.Origin)
+	name := zones.Name(spec.Origin)
 	t := resourceType()
 	return core.Object{
 		APIVersion: t.APIVersion(),
@@ -219,20 +169,9 @@ func (h *Handler) object(z loaded) core.Object {
 			// When the zone file last changed, which for a zone is when its
 			// records last changed. See provider.FileTime on why that is the
 			// creation timestamp.
-			CreationTimestamp: provider.FileTime(z.path),
+			CreationTimestamp: provider.FileTime(z.Path),
 		},
 		Spec:   spec,
 		Status: status,
 	}
-}
-
-// zoneName is the origin as an object name: the trailing dot goes, because a
-// Kubernetes name may not end in one, and the root zone is spelled the way the
-// server block that serves it is.
-func zoneName(origin string) string {
-	name := strings.ToLower(strings.TrimSuffix(origin, "."))
-	if name == "" {
-		return "root"
-	}
-	return corefile.SanitizeName(name)
 }
