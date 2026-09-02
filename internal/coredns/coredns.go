@@ -10,6 +10,7 @@ import (
 	"github.com/whoctl/whoctl-sdk-go/core"
 
 	"github.com/whoctl/whoctl-provider-coredns/internal/provider"
+	"github.com/whoctl/whoctl-provider-coredns/resources/record"
 	"github.com/whoctl/whoctl-provider-coredns/resources/server"
 	"github.com/whoctl/whoctl-provider-coredns/resources/zone"
 )
@@ -30,6 +31,7 @@ func (p *Provider) Handlers() []core.Handler {
 	return []core.Handler{
 		server.New(p.Provider),
 		zone.New(p.Provider),
+		record.New(p.Provider),
 	}
 }
 

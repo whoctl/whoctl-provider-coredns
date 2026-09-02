@@ -4,8 +4,9 @@ title: CoreDNS
 
 # CoreDNS
 
-Reads a local CoreDNS: the server blocks of its Corefile, and the zone files
-those blocks load.
+Reads a local CoreDNS — the server blocks of its Corefile and the zone files
+those blocks load — and writes resource records into a marked region of a zone
+file, which is the one thing here that changes anything.
 
 ```console
 $ whoctl get coredns/servers
@@ -19,7 +20,32 @@ NAME            RECORDS   SERIAL       TTL    SERVERS              AGE
 example.com     10        2026080501   3600   example.com-53       6d
 example.org     3         2026080502   300    example.com-53       6d
 internal.test   5         2026080503   3600   internal.test-5353   6d
+
+$ whoctl get coredns/records --field-selector spec.zone=example.com.
+NAME                  ZONE           TYPE    VALUES       TTL   MANAGED
+a-ns1.example.com     example.com.   A       192.0.2.53   0     false
+a-host1.example.com   example.com.   A       192.0.2.10   0     true
 ```
+
+## What it writes, and what it will not touch
+
+[Record](record/record.md) is the one kind here that writes, and it owns exactly
+what is between its markers:
+
+```
+; whoctl:begin whoctl
+host1.example.com.	IN	A	192.0.2.10
+; whoctl:end whoctl
+```
+
+Records inside the region are created, updated and deleted; records outside it
+are listed and every change to one is refused. Everything outside the markers
+survives byte for byte — the hand-aligned SOA, the comments, the records this
+provider's parser does not understand. The SOA serial is bumped on every write,
+because a secondary that never sees a new serial never transfers the zone.
+
+The Corefile itself is still read-only. Rewriting it means giving back every
+plugin, argument and comment that was not modelled, and that is not written.
 
 ## What it reads, and where from
 

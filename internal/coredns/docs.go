@@ -6,6 +6,7 @@ import (
 	"github.com/whoctl/whoctl-sdk-go/core"
 	"github.com/whoctl/whoctl-sdk-go/docs"
 
+	"github.com/whoctl/whoctl-provider-coredns/resources/record"
 	"github.com/whoctl/whoctl-provider-coredns/resources/server"
 	"github.com/whoctl/whoctl-provider-coredns/resources/zone"
 )
@@ -42,5 +43,6 @@ func pages() map[string]string {
 		"index.md":         indexPage,
 		"server/server.md": server.Page,
 		"zone/zone.md":     zone.Page,
+		"record/record.md": record.Page,
 	}
 }

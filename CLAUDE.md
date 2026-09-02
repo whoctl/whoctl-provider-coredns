@@ -1,12 +1,15 @@
 # whoctl-provider-coredns
 
-Reads a local CoreDNS: the server blocks of its Corefile, and the zone files
-those blocks load. Two kinds, `Server` and `Zone`, both read-only.
+Reads a local CoreDNS — the server blocks of its Corefile and the zone files
+those blocks load — and writes resource records into a marked region of a zone
+file. Three kinds: `Server` and `Zone` read, `Record` writes.
 
-The safety rules are in the workspace `CLAUDE.md`. They bind here too, but this
-provider is the mildest of the four: it opens files and never writes one. What
-that buys is that `go test ./...` is safe on the host — every test reads
-`testdata/` and nothing else.
+The safety rules are in the workspace `CLAUDE.md`, and one of them stopped being
+theoretical here: **this provider now changes a file a DNS server is reading.**
+`go test ./...` is still safe on the host, and stays that way by a rule of its
+own — no test may write inside `testdata/`. The tests that write copy the tree
+into `t.TempDir()` first, because a suite that edits its own fixtures passes
+once and then tests whatever it left behind.
 
 ## Decisions somebody would otherwise undo
 
@@ -19,8 +22,49 @@ only do that if it still has them. A model that throws the rest away is how a
 DNS server comes back up missing half its configuration.
 
 This is the same bargain the linux provider struck with `resolv.conf`, and it is
-why both kinds publish `get, list` and nothing else: the keeping is proven, the
-giving-back is not written.
+why `Server` and `Zone` publish `get, list` and nothing else: the keeping is
+proven, the giving-back is not written.
+
+**A marked region is how `Record` writes anyway.** The objection above is about
+the *Corefile*. A zone file is a smaller problem, and the region answers it
+without solving it: whoctl owns what is between its markers and copies every
+other line back byte for byte, including the ones the parser did not understand.
+
+```
+; whoctl:begin whoctl
+host1.example.com.	IN	A	192.0.2.10
+; whoctl:end whoctl
+```
+
+The ownership is then legible **in the file**, which is what makes deleting
+acceptable: whoctl removes what it wrote and cannot reach anything else. It is
+the same technique `docs.Generate` uses on markdown, where the markers are HTML
+comments; here they are zone file comments, so CoreDNS reads straight past them.
+
+A record outside the region is listed — a listing of only whoctl's own records
+would be one nobody could trust — and every change to one is refused, naming the
+file and the line. `status.managed` is which side of the line it is on.
+
+**`spec.region` is what makes a second writer safe.** An adapter keeping DNS in
+step with something else names its own region, and pruning one never reaches the
+other's records. See `design/adapters.md` in the workspace.
+
+**The serial is bumped on every write, by one.** A secondary decides whether to
+transfer by comparing serials, and CoreDNS decides whether a reload changed
+anything the same way — so records written without a bump reach nobody, and
+nothing reports that: the file is right and the world does not know. Plus one
+and nothing cleverer, because the only requirement is that it goes up, and
+rewriting it as today's date would impose a convention on a file that may not be
+using one. `zonefile.BumpSerial` does it textually, in place, so the
+hand-aligned SOA and its per-field comments survive.
+
+**Names are written absolute.** A relative name means whatever the last
+`$ORIGIN` above it said, and the region can be anywhere in the file — including
+below an `$ORIGIN` somebody adds later.
+
+**The write goes through a temporary file and a rename.** CoreDNS is reading
+this file on a timer; a truncate-and-write leaves a window where the zone is
+half a file, and the reload that lands in it drops the zone.
 
 **The group is flat.** `coredns.whoctl.io`, so the address is `coredns/servers`
 — two segments. The aws provider needs a third because Instance exists under
@@ -94,9 +138,13 @@ Every test here reads `testdata/` and agrees with itself. A parser that is wrong
 about a Corefile goes on agreeing with itself indefinitely, so both of these
 exist to ask something that is not this repository.
 
-`make sandbox` opens a shell on a throwaway machine with two things prepared:
-the fixture mounted at **`/etc/coredns`**, and a real CoreDNS answering from the
-same files at `dns`. Both matter.
+`make sandbox` opens a shell on a throwaway machine with two things prepared: a
+**writable copy** of the fixture mounted at **`/etc/coredns`**, and a real
+CoreDNS answering from the same files at `dns`. Both matter.
+
+The copy is what lets the suite apply a record and watch CoreDNS begin answering
+for it, without the suite or anybody at that shell editing `testdata/`. Break
+the zone in there and `git status` stays clean.
 
 The mount point is the one the provider looks at when nothing tells it
 otherwise, and on a workstation every command needs `--root` or an environment
@@ -121,12 +169,20 @@ the suite are the pairs — every SOA field, the apex name servers, three record
 chosen because the parser reads each down a different branch, and the port
 `internal.test` is served on. `make test` runs it after the unit tests.
 
-**It was checked by breaking the parser.** A suite that compares two readings is
-worth nothing until it has been seen to fail, so `soaOf` was changed to read the
-serial out of the wrong field. Three assertions went red — both zones and the
-one on 5353 — and were green again on revert. Do that again after changing
-either parser; a green suite that cannot go red is the thing this was built to
-avoid.
+**It was checked by breaking things.** A suite that compares two readings is
+worth nothing until it has been seen to fail.
+
+`soaOf` was changed to read the serial out of the wrong field: three assertions
+went red — both zones and the one on 5353 — and were green again on revert.
+
+Then `BumpSerial` was made to return the serial unchanged, which is the
+interesting one: nothing about the write is wrong, the record is in the file,
+and **CoreDNS never serves it** because the serial did not move. Three
+assertions went red, including the pair that watches a record whoctl wrote
+become an answer CoreDNS gives. That failure has no other symptom, which is why
+it is the one the suite exists for.
+
+Do both again after changing either parser or the writer.
 
 `make sandbox` is the same machine without the suite, for when the thing you
 want is to type at it.
@@ -149,7 +205,10 @@ true, not the parser.
 ## Layout
 
 `internal/corefile` and `internal/zonefile` are the two parsers and import
-nothing of this provider. `internal/provider` is the shared state — where the
-Corefile is, what paths resolve under. `internal/coredns` is assembly and the
-overview page. `resources/server` and `resources/zone` are the kinds, each with
-its page beside it.
+nothing of this provider; `zonefile/write.go` is the writing half — the marked
+region and the serial. `internal/zones` is the discovery a Zone and a Record
+share, so that "which file is example.com. served from" has one answer rather
+than two. `internal/provider` is the shared state — where the Corefile is, what
+paths resolve under. `internal/coredns` is assembly and the overview page.
+`resources/server`, `resources/zone` and `resources/record` are the kinds, each
+with its page beside it.
