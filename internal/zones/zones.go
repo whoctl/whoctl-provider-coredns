@@ -79,20 +79,33 @@ func Discover(p *provider.Provider, f *corefile.File) []Loaded {
 // Find looks a zone up the way somebody would name it: by the object name, by
 // the origin with or without its trailing dot.
 //
-// An origin served from two different files is two entries and cannot be found
+// An origin served from two different files is two entries and is not found
 // this way — which is deliberate for anything that writes: there is no single
 // file to write to, and picking one would be picking wrong half the time.
+// Matching is what says which of the two happened.
 func Find(all []Loaded, want string) (Loaded, bool) {
+	matches := Matching(all, want)
+	if len(matches) != 1 {
+		return Loaded{}, false
+	}
+	return matches[0], true
+}
+
+// Matching is every zone answering to a name.
+//
+// More than one means the Corefile loads that origin from several files, which
+// CoreDNS allows and a writer cannot resolve. The caller needs the list to say
+// so: an error naming the origin twice explains nothing, and that is what it
+// said before this existed.
+func Matching(all []Loaded, want string) []Loaded {
 	want = strings.ToLower(strings.TrimSpace(want))
 	bare := strings.TrimSuffix(want, ".")
 
-	var found Loaded
-	matches := 0
+	var out []Loaded
 	for _, z := range all {
 		if z.Name() == Name(want) || strings.TrimSuffix(strings.ToLower(z.Origin), ".") == bare {
-			found = z
-			matches++
+			out = append(out, z)
 		}
 	}
-	return found, matches == 1
+	return out
 }

@@ -359,3 +359,32 @@ func TestWhatItWritesItCanReadBack(t *testing.T) {
 	}
 	t.Errorf("the record was written and cannot be read back:\n%s", read(t, path))
 }
+
+// CoreDNS lets a Corefile load one origin from two files, and a writer cannot
+// resolve that: there is no single file the record goes into. The message has
+// to name the files, because the origins are identical and only the files tell
+// the two apart — it used to name the origin twice, which explained nothing.
+func TestApplyRefusesAnOriginServedFromTwoFiles(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "etc", "coredns")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, "../../testdata/etc/coredns/db.example.com", filepath.Join(dir, "db.example.com"))
+	copyFile(t, "../../testdata/etc/coredns/db.example.com", filepath.Join(dir, "db2.example.com"))
+	corefile := "example.com:53 {\n    file db.example.com example.com.\n    file db2.example.com example.com.\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "Corefile"), []byte(corefile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	h := New(provider.New(provider.Options{Root: root, Corefile: filepath.Join(dir, "Corefile")}))
+	_, err := h.Apply(context.Background(), core.Object{Spec: host1("example.com.")})
+	if core.CodeOf(err) != core.CodeInvalid {
+		t.Fatalf("err = %v, want an invalid", err)
+	}
+	for _, want := range []string{"db.example.com", "db2.example.com", "no single file"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the message must say %q: %v", want, err)
+		}
+	}
+}

@@ -261,11 +261,21 @@ func (h *Handler) zoneOf(name string) (zones.Loaded, string, error) {
 	if err != nil {
 		return zones.Loaded{}, "", err
 	}
-	z, ok := zones.Find(loaded, name)
-	if !ok {
+	matches := zones.Matching(loaded, name)
+	switch len(matches) {
+	case 1:
+	case 0:
 		return zones.Loaded{}, "", core.Invalidf("no zone %q is loaded here: the Corefile loads %s",
 			name, strings.Join(zoneNames(loaded), ", "))
+	default:
+		// CoreDNS allows it and a writer cannot resolve it: two files for one
+		// origin means two answers to "where does this record go", and picking
+		// one would be picking wrong half the time.
+		return zones.Loaded{}, "", core.Invalidf(
+			"the Corefile loads %s from %d different files (%s), so there is no single file to write this record to",
+			name, len(matches), strings.Join(fileNames(matches), ", "))
 	}
+	z := matches[0]
 	src, err := os.ReadFile(z.Path)
 	if err != nil {
 		return zones.Loaded{}, "", core.Unavailablef("cannot read %s: %v", z.Path, err)

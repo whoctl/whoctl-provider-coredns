@@ -174,6 +174,16 @@ func namesOf(objs []core.Object) []string {
 	return out
 }
 
+// fileNames is what the ambiguous case has to name: the origins are identical,
+// so only the files tell the two apart.
+func fileNames(all []zones.Loaded) []string {
+	out := make([]string, 0, len(all))
+	for _, z := range all {
+		out = append(out, z.File)
+	}
+	return out
+}
+
 func zoneNames(all []zones.Loaded) []string {
 	out := make([]string, 0, len(all))
 	for _, z := range all {
