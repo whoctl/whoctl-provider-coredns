@@ -11,7 +11,12 @@
 
 example.com example.org:53 {
     import logging
-    file db.example.com example.com.
+    # reload is what makes a change to a zone file reach the running server,
+    # and it is here at five seconds rather than its default minute so the
+    # suite can watch a record whoctl wrote become an answer CoreDNS gives.
+    file db.example.com example.com. {
+        reload 5s
+    }
     file db.example.org example.org.
     prometheus :9153
 }

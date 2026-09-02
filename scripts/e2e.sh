@@ -205,8 +205,92 @@ section "a Corefile that is not there"
 expect_match "names the path it looked at" '/nowhere/Corefile' \
 	sh -c "WHOCTL_COREDNS_COREFILE=/nowhere/Corefile whoctl get coredns/servers"
 
-section "this provider does not write yet"
-expect_match "apply is refused, and says why" 'does not rewrite' sh -c "whoctl apply -f - <<'YAML'
+# wait_for DESCRIPTION EXPECTED COMMAND... — CoreDNS reloads a zone file on a
+# timer, so a record whoctl just wrote is not an answer yet. The fixture sets
+# `reload 5s` on that zone; this waits for it rather than sleeping for it.
+wait_for() {
+	desc=$1
+	want=$2
+	shift 2
+	for _ in $(seq 1 30); do
+		got=$("$@" 2>&1)
+		if [ "$got" = "$want" ]; then
+			ok "$desc"
+			return
+		fi
+		sleep 1
+	done
+	nok "$desc" "waited 30s; CoreDNS says '$got', want '$want'"
+}
+
+soa_serial() { dig @"$dns" "$1" SOA +short | awk '{print $3}'; }
+
+section "records, which is the one thing this provider writes"
+# The pair that earns this whole section: whoctl writes into the file, and the
+# CoreDNS running beside it — which nobody told about the change — starts
+# answering for it.
+expect_match "apply creates a record" 'created' sh -c "whoctl apply -f - <<'YAML'
+apiVersion: coredns.whoctl.io/v1alpha1
+kind: Record
+metadata:
+  name: a-host1.example.com
+spec:
+  zone: example.com.
+  name: host1
+  type: A
+  values: [\"192.0.2.10\"]
+YAML"
+expect_match "and the file now carries whoctl's region" 'whoctl:begin whoctl' \
+	cat /etc/coredns/db.example.com
+expect_match "with the record written absolute" 'host1\.example\.com\.' \
+	cat /etc/coredns/db.example.com
+wait_for "CoreDNS answers with what whoctl wrote" "192.0.2.10" \
+	dig @"$dns" host1.example.com A +short
+expect_eq "and the serial it reports moved" "2026080502" "$(soa_serial example.com)"
+
+# Everything the file already had is still there and still served. A rewrite
+# that lost a record would look exactly like this test not existing.
+expect_eq "the records that were there are untouched" "192.0.2.53" \
+	"$(dig @"$dns" ns1.example.com A +short)"
+expect_match "including the one nothing here can parse into a record" 'v=DMARC1' \
+	sh -c "dig @$dns _dmarc.example.com TXT +short"
+
+expect_match "a second apply changes nothing" 'unchanged' sh -c "whoctl apply -f - <<'YAML'
+apiVersion: coredns.whoctl.io/v1alpha1
+kind: Record
+metadata:
+  name: a-host1.example.com
+spec:
+  zone: example.com.
+  name: host1
+  type: A
+  values: [\"192.0.2.10\"]
+YAML"
+expect_eq "so the serial stays where it is" "2026080502" "$(soa_serial example.com)"
+
+expect_match "a record written by hand is refused" 'did not write' sh -c "whoctl apply -f - <<'YAML'
+apiVersion: coredns.whoctl.io/v1alpha1
+kind: Record
+metadata:
+  name: a-ns1.example.com
+spec:
+  zone: example.com.
+  name: ns1
+  type: A
+  values: [\"192.0.2.99\"]
+YAML"
+expect_eq "and it still answers what it always did" "192.0.2.53" \
+	"$(dig @"$dns" ns1.example.com A +short)"
+
+expect_match "the listing says which records are whoctl's" 'true' \
+	sh -c "whoctl get coredns/records --field-selector status.managed=true"
+expect_match "delete removes it" 'deleted' whoctl delete coredns/record a-host1.example.com
+wait_for "and CoreDNS stops answering for it" "" dig @"$dns" host1.example.com A +short
+expect_match "a hand-written record cannot be deleted" 'only removes what it wrote' \
+	whoctl delete coredns/record a-ns1.example.com
+
+section "the two kinds that do not write"
+expect_match "a server cannot be applied, and says why" 'does not rewrite' sh -c "whoctl apply -f - <<'YAML'
 apiVersion: coredns.whoctl.io/v1alpha1
 kind: Server
 metadata:

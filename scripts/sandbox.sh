@@ -19,9 +19,16 @@
 # and a parser that is wrong about a Corefile agrees with itself right up until
 # something outside it is asked.
 #
-# The whole of testdata/ is mounted a second time at /testdata, because the
-# suite needs the fixtures that are deliberately *not* the default one — the
-# Corefile whose imports go nowhere, and the zone file that is not there.
+# The tree at /etc/coredns is a *copy*, and it is writable. Record is the one
+# kind here that writes, so the suite has to be able to apply one and watch
+# CoreDNS start answering for it — and neither the suite nor somebody poking at
+# a shell may edit testdata/ to do that. The copy is thrown away with the
+# container; break the zone in there and `git status` stays clean.
+#
+# The whole of testdata/ is mounted a second time at /testdata, read-only,
+# because the suite needs the fixtures that are deliberately *not* the default
+# one — the Corefile whose imports go nowhere, and the zone file that is not
+# there.
 #
 # Usage:
 #   scripts/sandbox.sh                              # a shell
@@ -53,6 +60,14 @@ cleanup() {
 trap cleanup EXIT INT TERM
 cleanup
 
+# The writable copy both containers share: whoctl writes to it and CoreDNS
+# reads it, which is what lets the suite compare a record whoctl applied with
+# the answer CoreDNS gives for it.
+work="$root/bin/sandbox-coredns"
+rm -rf "$work"
+mkdir -p "$work"
+cp -r "$root/testdata/etc/coredns/." "$work/"
+
 "$engine" network create "$network" >/dev/null 2>&1 || true
 
 # Read-only, and on the shared network rather than published: nothing out here
@@ -62,7 +77,7 @@ cleanup
 # nobody would type it, and a name somebody will not type is a comparison
 # nobody will make.
 "$engine" run -d --rm --name "$dns" --network "$network" --network-alias dns \
-	-v "$root/testdata/etc/coredns:/etc/coredns:ro,z" \
+	-v "$work:/etc/coredns:ro,z" \
 	-w /etc/coredns \
 	"$image" -conf /etc/coredns/Corefile >/dev/null
 
@@ -78,7 +93,7 @@ EOF
 
 PROVIDERS=coredns \
 EXTRA_PACKAGES="bind-tools" \
-MOUNTS="-v $root/testdata/etc/coredns:/etc/coredns:ro,z \
+MOUNTS="-v $work:/etc/coredns:z \
 	-v $root/testdata:/testdata:ro,z \
 	-v $root/scripts:/scripts:ro,z" \
 NETWORK="--network $network" \
